@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Burnout & Stress Radar</title>
+<style>
+:root{--ink:#1B1F6B;--bg:#EEF1F6;--card:#fff;--line:#D9DFEA;--mut:#5B6478;--ok:#16836A;--warn:#C27C0E;--bad:#C2410C}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#151826;font:16px/1.45 Calibri,Carlito,'Segoe UI',sans-serif}
+header{background:var(--ink);color:#fff;padding:20px 24px}header h1{margin:0;font-size:28px}header p{margin:4px 0 0;color:#C9CEF5}
+main{max-width:1040px;margin:0 auto;padding:20px;display:grid;gap:16px;grid-template-columns:1fr 1fr}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}.wide{grid-column:1/-1}
+h2{margin:0 0 8px;font-size:18px;color:var(--ink)}.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+button.p{background:var(--ink);color:#fff}button:focus-visible,select:focus-visible{outline:3px solid #7C86FF;outline-offset:2px}
+.badge{margin-left:auto;font-size:14px;background:#E3F5EF;color:#0E5A47;padding:4px 10px;border-radius:99px}
+.score{display:flex;align-items:center;gap:16px}.num{font-size:64px;font-weight:700;line-height:1}.lbl{font-size:18px;font-weight:700}
+.mut{color:var(--mut);font-size:14px}ul{margin:0;padding-left:20px}li{margin:6px 0}
+.nudge{border-left:4px solid var(--ink);padding:8px 12px;background:#F3F4FF;border-radius:0 8px 8px 0;margin:10px 0}
+pre{background:#10142E;color:#D7DBFF;padding:12px;border-radius:8px;overflow:auto;font-size:13px;margin:8px 0}
+svg{width:100%;height:auto;display:block}.empty{padding:24px;text-align:center;color:var(--mut)}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+</style></head><body>
+<header><h1>Burnout &amp; Stress Radar</h1><p>Body, phone and calendar signals in one place. Your data stays on your device.</p></header>
+<main>
+<section class="card wide"><div class="bar">
+<button class="p" id="demo">Load 30 days of demo data</button>
+<label class="button"><input type="file" id="file" accept=".csv" hidden><button id="imp" type="button">Import CSV</button></label>
+<button id="exp">Export data</button><button id="wipe">Wipe all data</button>
+<span class="badge">On-device · no network requests</span></div>
+<p class="mut" style="margin:8px 0 0">CSV columns: date, sleep_h, rhr, hrv, late_screen_min, meetings, steps</p></section>
+<section class="card" id="today"></section>
+<section class="card" id="nudge"></section>
+<section class="card wide" id="chart"></section>
+<section class="card" id="patterns"></section>
+<section class="card" id="privacy"></section>
+</main>
+<script>
+const KEY='bsr_data',$=id=>document.getElementById(id);let D=[];
+const sv=()=>{try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}};
+const ld=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){return[]}};
+const mean=a=>a.reduce((s,x)=>s+x,0)/a.length,sd=a=>{const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))||1};
+const r1=x=>Math.round(x*10)/10;
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function demo(){const R=rng(7),rows=[];let pl=60,pm=2;
+ for(let i=0;i<30;i++){const d=new Date(2026,9,26+i),late=Math.max(0,Math.round(40+R()*90+(i>21?55:0))),m=Math.round(R()*3+(i>21?2:0));
+  const hrv=r1(64-0.1*pl-1.1*pm+(R()-.5)*8),sleep=r1(Math.min(9,7.7-0.005*late-0.12*m+(R()-.5)*.8));
+  rows.push({date:d.toISOString().slice(0,10),sleep_h:sleep,rhr:r1(58+(7.5-sleep)*1.6+(R()-.5)*3),hrv,late_screen_min:late,meetings:m,steps:Math.round(4000+R()*7000)});pl=late;pm=m}
+ return rows}
+function parse(t){const L=t.trim().split(/\r?\n/),h=L.shift().split(',').map(s=>s.trim().toLowerCase());
+ return L.map(l=>{const c=l.split(','),o={};h.forEach((k,i)=>o[k]=k==='date'?c[i].trim():parseFloat(c[i]));return o}).filter(o=>o.date&&!isNaN(o.hrv)&&!isNaN(o.sleep_h)&&!isNaN(o.rhr))}
+function scores(){const H=D.map(r=>r.hrv),R=D.map(r=>r.rhr),S=D.map(r=>r.sleep_h);
+ const z=(v,a,inv)=>(inv?-1:1)*(v-mean(a))/sd(a);
+ return D.map((r,i)=>Math.max(0,Math.min(100,Math.round(50+25*(z(r.hrv,H,1)+z(r.rhr,R)+z(r.sleep_h,S,1))/3*1.6))))}
+function corr(x,y){const mx=mean(x),my=mean(y);let a=0,b=0,c=0;x.forEach((v,i)=>{a+=(v-mx)*(y[i]-my);b+=(v-mx)**2;c+=(y[i]-my)**2});return a/Math.sqrt(b*c||1)}
+function split(x,y){const m=[...x].sort((a,b)=>a-b)[x.length>>1],hi=y.filter((_,i)=>x[i]>m),lo=y.filter((_,i)=>x[i]<=m);return[mean(hi),mean(lo)]}
+function patterns(){const n=D.length;if(n<10)return[];const P=[];
+ const lag=(f,g)=>{const x=[],y=[];for(let i=1;i<n;i++){x.push(f(D[i-1]));y.push(g(D[i]))}return[x,y]};
+ const defs=[['Late-night screen time','next-day HRV',...lag(r=>r.late_screen_min,r=>r.hrv),'ms','late screens'],
+  ['Meetings','that night\'s sleep',...[D.map(r=>r.meetings),D.map(r=>r.sleep_h)],'h','heavy meeting days'],
+  ['Sleep','next-day resting heart rate',...lag(r=>r.sleep_h,r=>r.rhr),'bpm','longer sleep']];
+ defs.forEach(([a,b,x,y,u,w])=>{const r=corr(x,y);if(Math.abs(r)>=.25){const[h,l]=split(x,y);
+  P.push({r:r1(r*100)/100,n:x.length,text:`${a} and ${b} move together (r = ${r.toFixed(2)}). Above the median, ${b} averages ${r1(h)} ${u} vs ${r1(l)} ${u} below it.`})}});
+ return P.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r))}
+function band(s){return s<40?['Recovered','var(--ok)']:s<60?['Watch','var(--warn)']:['High strain','var(--bad)']}
+let SC=[];
+function render(){const has=D.length>=3;
+ ['today','nudge','chart','patterns','privacy'].forEach(i=>$(i).innerHTML='');
+ if(!has){$('today').innerHTML='<h2>Today</h2><div class="empty">No data yet. Load the demo data or import a CSV to see your strain score.</div>';return}
+ SC=scores();const s=SC[SC.length-1],[bl,col]=band(s),t=D[D.length-1];
+ $('today').innerHTML=`<h2>Strain today</h2><div class="score"><div class="num" style="color:${col}">${s}</div><div><div class="lbl" style="color:${col}">${bl}</div><div class="mut">Compared with your own ${D.length}-day baseline (0 = fully recovered, 100 = high strain)</div></div></div>
+ <p class="mut">Sleep ${t.sleep_h} h · resting HR ${t.rhr} bpm · HRV ${t.hrv} ms · late screens ${t.late_screen_min} min · ${t.meetings} meetings</p>`;
+ $('nudge').innerHTML=`<h2>Tonight's nudge</h2><label>Meetings tomorrow: <select id="tm">${[0,1,2,3,4,5,6].map(i=>`<option ${i==4?'selected':''}>${i}</option>`).join('')}</select></label><div id="ntext"></div><button id="speak">Read it aloud</button>`;
+ $('tm').onchange=nudge;nudge();
+ const W=900,Hh=200,p=30,xs=i=>p+i*(W-2*p)/(SC.length-1),ys=v=>Hh-20-v*(Hh-40)/100;
+ $('chart').innerHTML=`<h2>Strain over time</h2><svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Strain score line chart">
+ <rect x="${p}" y="${ys(100)}" width="${W-2*p}" height="${ys(60)-ys(100)}" fill="#FBE5DA"/><rect x="${p}" y="${ys(60)}" width="${W-2*p}" height="${ys(40)-ys(60)}" fill="#FBF0D9"/><rect x="${p}" y="${ys(40)}" width="${W-2*p}" height="${ys(0)-ys(40)}" fill="#E3F5EF"/>
+ <polyline fill="none" stroke="#1B1F6B" stroke-width="3" points="${SC.map((v,i)=>xs(i)+','+ys(v)).join(' ')}"/>
+ ${SC.map((v,i)=>`<circle cx="${xs(i)}" cy="${ys(v)}" r="4" fill="#1B1F6B"><title>${D[i].date}: ${v}</title></circle>`).join('')}
+ <text x="${p}" y="${Hh-4}" font-size="13" fill="#5B6478">${D[0].date}</text><text x="${W-p}" y="${Hh-4}" font-size="13" text-anchor="end" fill="#5B6478">${t.date}</text></svg>`;
+ const P=patterns();
+ $('patterns').innerHTML=`<h2>Patterns found</h2>`+(P.length?`<ul>${P.map(x=>`<li>${x.text}<div class="mut">Based on ${x.n} days. Correlation, not proof.</div></li>`).join('')}</ul>`:'<div class="empty">Add at least 10 days of data to find patterns.</div>');
+ const sum={days:D.length,strain_today:s,hrv_vs_baseline_pct:Math.round((t.hrv/mean(D.map(r=>r.hrv))-1)*100),sleep_vs_baseline_h:r1(t.sleep_h-mean(D.map(r=>r.sleep_h))),late_screen_band:t.late_screen_min>90?'high':t.late_screen_min>45?'medium':'low',meetings_tomorrow:+$('tm').value,patterns:P.map(x=>x.text.split(' (')[0])};
+ $('privacy').innerHTML=`<h2>What the AI saw</h2><p class="mut">Everything runs in this page. If cloud assist were turned on, only this summary would leave your device. Raw heart rate, screen logs and calendar titles never would. Cloud assist is off.</p><pre>${JSON.stringify(sum,null,2)}</pre>`}
+function nudge(){const s=SC[SC.length-1],t=D[D.length-1],m=+$('tm').value;let x;
+ if((s>=55||t.late_screen_min>90)&&m>=3)x=`Your strain is ${s>=55?'high':'building'} and tomorrow has ${m} meetings. Start winding down by 10:30 PM and skip late scrolling to avoid an afternoon crash.`;
+ else if(s>=55)x='Your strain is high. Take a 10-minute walk and aim for 7.5 hours of sleep tonight.';
+ else x='You are recovering well. Keep tonight\'s routine and your usual bedtime.';
+ $('ntext').innerHTML=`<div class="nudge">${x}</div>`;$('speak').onclick=()=>{try{speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(x))}catch(e){}}}
+$('demo').onclick=()=>{D=demo();sv();render()};
+$('imp').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const p=parse(r.result);if(p.length<3){alert('Could not read this file. Use the columns shown above, with at least 3 rows.');return}D=p;sv();render()};r.readAsText(f);e.target.value=''};
+$('exp').onclick=()=>{const h='date,sleep_h,rhr,hrv,late_screen_min,meetings,steps',b=new Blob([[h,...D.map(r=>[r.date,r.sleep_h,r.rhr,r.hrv,r.late_screen_min,r.meetings,r.steps].join(','))].join('\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='my-data.csv';a.click()};
+$('wipe').onclick=()=>{if(confirm('Delete all data stored in this browser?')){D=[];try{localStorage.removeItem(KEY)}catch(e){}render()}};
+D=ld();render();
+</script></body></html>
